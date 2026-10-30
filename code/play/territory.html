@@ -1,0 +1,245 @@
+<title>Enclosure 5×5</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Layout: one column; the board is the hero, rules and notes below it in two compact columns. */
+:root{
+  --bg:#f3f5f7; --ink:#14202b; --muted:#5b6875; --line:#d4dbe2; --cell:#e3e8ed;
+  --land:#9cc8e8; --trail:#2f7fc1; --me:#0b3f6e; --foe:#d33a4a; --panel:#ffffff;
+  --display:"Fraunces",Georgia,serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f151b; --ink:#e6edf3; --muted:#93a1ae; --line:#26323d; --cell:#1b242d;
+  --land:#24557d; --trail:#5aa6e6; --me:#cfe6ff; --foe:#ff5b6b; --panel:#141c24; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151b; --ink:#e6edf3; --muted:#93a1ae; --line:#26323d; --cell:#1b242d;
+  --land:#24557d; --trail:#5aa6e6; --me:#cfe6ff; --foe:#ff5b6b; --panel:#141c24; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--body)}
+.wrap{max-width:760px;margin:0 auto;padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:22px}
+h1{font:600 clamp(28px,6vw,40px)/1.1 var(--display);margin:0;text-wrap:balance}
+.game{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:22px;align-items:start}
+@media (max-width:640px){.game{grid-template-columns:1fr}}
+canvas{width:100%;aspect-ratio:1;display:block;touch-action:none;border-radius:6px;background:var(--bg)}
+.side{display:grid;gap:14px;min-width:0}
+.stats{display:flex;gap:18px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.stat b{display:block;font-size:26px;font-weight:600}
+.stat span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.msg{min-height:1.5em;color:var(--muted)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button{font:600 14px var(--body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--trail)}
+button:focus-visible{outline:2px solid var(--trail);outline-offset:2px}
+button.primary{background:var(--trail);border-color:var(--trail);color:#fff}
+.pad{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(2,44px);gap:6px}
+.pad button{padding:0;font-size:18px}
+.pad .u{grid-column:2}.pad .l{grid-column:1;grid-row:2}.pad .d{grid-column:2;grid-row:2}.pad .r{grid-column:3;grid-row:2}
+.key{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted)}
+.key i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.notes{color:var(--muted);max-width:62ch}
+ul{margin:0;padding-left:18px;display:grid;gap:5px}
+code{font-family:var(--mono);font-size:13px}
+</style>
+
+<div class="wrap">
+  <header><h1>Enclosure 5×5</h1></header>
+
+  <section class="game">
+    <canvas id="c" aria-label="5 by 5 game board"></canvas>
+    <div class="side">
+      <div class="stats">
+        <div class="stat"><b id="land">1</b><span>land of 25</span></div>
+        <div class="stat"><b id="tick">0</b><span>tick</span></div>
+        <div class="stat"><b id="best">1</b><span>your best</span></div>
+      </div>
+      <div class="msg" id="msg">Arrow keys: one press = one tick.</div>
+      <div class="pad" aria-label="Move">
+        <button class="u" id="pu" type="button" aria-label="Up">↑</button>
+        <button class="l" id="pl" type="button" aria-label="Left">←</button>
+        <button class="d" id="pd" type="button" aria-label="Down">↓</button>
+        <button class="r" id="pr" type="button" aria-label="Right">→</button>
+      </div>
+      <div class="btns">
+        <button id="restart" type="button">Restart</button>
+        <button id="watch" class="primary" type="button">Watch optimal</button>
+      </div>
+      <div class="key">
+        <span><i style="background:var(--land)"></i>your land</span>
+        <span><i style="background:var(--trail)"></i>trail</span>
+        <span><i style="background:var(--me)"></i>you</span>
+        <span><i style="background:var(--foe)"></i>hunter</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes">
+    <ul>
+      <li>Leave land to draw a trail; return to claim it plus everything enclosed away from the edge.</li>
+      <li>You never stop once moving. Wall, own trail, or hunter on your trail = game over.</li>
+      <li>The hunter matches your speed, walks around land to your nearest trail cell, and waits near you when you're home.</li>
+      <li>Best possible: <b>21 of 25</b> (proven by exhaustive search).</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+(() => {
+const N = 5, SLOW = 1;
+const $ = id => document.getElementById(id);
+const cv = $('c'), ctx = cv.getContext('2d');
+const D = {up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
+const KEYS = {ArrowUp:D.up,w:D.up,ArrowDown:D.down,s:D.down,ArrowLeft:D.left,a:D.left,ArrowRight:D.right,d:D.right};
+const DX = [0,0,-1,1], DY = [-1,1,0,0];
+const id = (x,y) => y*N+x, inb = (x,y) => x>=0&&y>=0&&x<N&&y<N;
+let own, trail, path, me, foes, tick, over, best = 1, replay = null;
+
+function reset(){
+  own = new Uint8Array(N*N); trail = new Uint8Array(N*N); path = [];
+  DIST = new Int32Array(N*N); Q = new Int32Array(N*N);
+  const m = N >> 1;
+  me = {x:m, y:m, dir:null, next:null};                    // one home square in the centre
+  own[id(m,m)] = 1;
+  foes = [{x:0, y:0}];                                    // hunter starts in a corner
+  tick = 0; over = false;
+  $('msg').textContent = 'Arrow keys: one press = one tick.';
+  score(); draw();
+}
+// Random but dispersed: sample candidates, keep the one farthest from other hunters
+function spawnFoe(f){
+  let best = null, bestD = -1;
+  for (let tries=0; tries<400 && (best===null || tries<40); tries++){
+    const x = Math.random()*N|0, y = Math.random()*N|0;
+    if (own[id(x,y)] || trail[id(x,y)] || Math.abs(x-me.x)+Math.abs(y-me.y) < N*0.3 - tries/20) continue;
+    let d = Infinity;
+    for (const o of foes) if (o !== f) d = Math.min(d, Math.abs(o.x-x)+Math.abs(o.y-y));
+    if (d > bestD){ bestD = d; best = [x,y]; }
+  }
+  if (!best) best = [0,0];
+  f.x = best[0]; f.y = best[1];
+}
+
+/* Hunter rules:
+   - Goal: your trail if you're outside (the nearest trail cell, by walking distance), else the open cells closest to you.
+   - Each move, step to the neighbour that is one step closer along the shortest path around your territory.
+   - If several neighbours are equally good, close the larger horizontal/vertical gap first.
+   The distance field is one BFS from the goal cells, shared by all hunters. */
+let DIST, Q;
+function buildField(){
+  DIST.fill(-1); let h = 0, t = 0;
+  if (path.length){ for (const c of path){ DIST[c] = 0; Q[t++] = c; } }
+  else {
+    let best = Infinity;
+    for (let c=0;c<N*N;c++) if (!own[c]){ const dx=c%N-me.x, dy=(c/N|0)-me.y, d=dx*dx+dy*dy; if (d<best) best=d; }
+    for (let c=0;c<N*N;c++) if (!own[c]){ const dx=c%N-me.x, dy=(c/N|0)-me.y; if (dx*dx+dy*dy===best){ DIST[c]=0; Q[t++]=c; } }
+  }
+  while (h < t){
+    const c = Q[h++], x = c%N, y = (c-x)/N;
+    for (let k=0;k<4;k++){
+      const nx=x+DX[k], ny=y+DY[k]; if (!inb(nx,ny)) continue;
+      const n = id(nx,ny); if (DIST[n]>=0 || own[n]) continue;
+      DIST[n] = DIST[c]+1; Q[t++] = n;
+    }
+  }
+}
+function moveFoe(f){
+  const here = DIST[id(f.x,f.y)];
+  if (here <= 0) return;                                  // at goal (or unreachable)
+  const tx = me.x - f.x, ty = me.y - f.y;                 // gap used only to break ties
+  let best = null, bestScore = -Infinity;
+  for (let k=0;k<4;k++){
+    const nx=f.x+DX[k], ny=f.y+DY[k]; if (!inb(nx,ny)) continue;
+    const d = DIST[id(nx,ny)]; if (d < 0 || d >= here) continue;
+    const score = DX[k]*tx*Math.abs(tx) + DY[k]*ty*Math.abs(ty);   // favour the bigger gap
+    if (score > bestScore){ bestScore = score; best = [nx,ny]; }
+  }
+  if (best){ f.x = best[0]; f.y = best[1]; }
+}
+
+function capture(){
+  for (const c of path){ trail[c] = 0; own[c] = 1; }
+  path = [];
+  const seen = new Uint8Array(N*N), st = [];
+  for (let i=0;i<N;i++) for (const c of [id(i,0),id(i,N-1),id(0,i),id(N-1,i)])
+    if (!own[c] && !seen[c]) { seen[c]=1; st.push(c); }
+  while (st.length){
+    const c = st.pop(), x = c%N, y = (c-x)/N;
+    for (let k=0;k<4;k++){ const nx=x+DX[k], ny=y+DY[k]; if (!inb(nx,ny)) continue;
+      const n = id(nx,ny); if (!own[n] && !seen[n]) { seen[n]=1; st.push(n); } }
+  }
+  for (let c=0;c<N*N;c++) if (!seen[c]) own[c] = 1;
+  for (const f of foes) if (own[id(f.x,f.y)]) spawnFoe(f);                // trapped hunter respawns elsewhere
+}
+
+function step(){
+  if (over) return;
+  tick++;
+  if (me.next){ const d = me.next; me.next = null;
+    if (!(me.dir && path.length && d[0]===-me.dir[0] && d[1]===-me.dir[1])) me.dir = d; }
+  if (me.dir){
+    const nx = me.x+me.dir[0], ny = me.y+me.dir[1];
+    if (!inb(nx,ny)) return end('Hit the wall.');
+    me.x = nx; me.y = ny;
+    const c = id(nx,ny);
+    if (trail[c]) return end('Crossed your own trail.');
+    if (!own[c]) { trail[c] = 1; path.push(c); }
+  }
+  const moves = Math.floor(tick/SLOW) - Math.floor((tick-1)/SLOW);   // hunter moves 1 cell per SLOW ticks
+  const caught = () => foes.some(f => trail[id(f.x,f.y)]);
+  for (let i=0;i<moves && !caught();i++){ buildField(); for (const f of foes) moveFoe(f); }
+  if (caught()) return end('A hunter caught your trail.');
+  if (own[id(me.x,me.y)] && path.length) capture();
+  score(); draw();
+}
+function end(why){ over = true; $('msg').textContent = why + ' Press R to restart.'; score(); draw(); }
+function score(){
+  let n = 0; for (let c=0;c<N*N;c++) n += own[c];
+  best = Math.max(best, n);
+  $('land').textContent = n; $('tick').textContent = tick; $('best').textContent = best;
+  if (!over && n === 21) $('msg').textContent = '21 of 25: you found the optimum.';
+}
+function draw(){
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  const S = Math.max(N, Math.round(r.width*dpr/N)*N);
+  if (cv.width !== S) cv.width = cv.height = S;
+  const cs = S/N, css = getComputedStyle(document.documentElement), v = k => css.getPropertyValue(k).trim();
+  const g = Math.max(1, cs*0.05);
+  ctx.clearRect(0,0,S,S);
+  for (let c=0;c<N*N;c++){
+    const x = c%N, y = c/N|0;
+    let col = own[c] ? v('--land') : trail[c] ? v('--trail') : v('--cell');
+    if (x===me.x && y===me.y) col = v('--me');
+    for (const f of foes) if (x===f.x && y===f.y) col = v('--foe');
+    ctx.fillStyle = col; ctx.fillRect(x*cs+g, y*cs+g, cs-2*g, cs-2*g);
+  }
+}
+function input(d){ if (over) return; me.next = d; step(); }
+function user(d){ if (replay === null) input(d); }
+
+addEventListener('keydown', e => {
+  if (e.key === 'r' || e.key === 'R'){ if (replay === null) reset(); return; }
+  const d = KEYS[e.key.length===1 ? e.key.toLowerCase() : e.key]; if (!d) return;
+  e.preventDefault(); user(d);
+});
+let sw = null;
+cv.addEventListener('pointerdown', e => sw = [e.clientX,e.clientY]);
+cv.addEventListener('pointerup', e => {
+  if (!sw) return; const dx = e.clientX-sw[0], dy = e.clientY-sw[1]; sw = null;
+  if (Math.max(Math.abs(dx),Math.abs(dy)) < 15) return;
+  user(Math.abs(dx)>Math.abs(dy) ? (dx>0?D.right:D.left) : (dy>0?D.down:D.up));
+});
+$('pu').addEventListener('click', () => user(D.up)); $('pd').addEventListener('click', () => user(D.down));
+$('pl').addEventListener('click', () => user(D.left)); $('pr').addEventListener('click', () => user(D.right));
+$('restart').addEventListener('click', e => { clearInterval(replay); replay = null; reset(); e.target.blur(); });
+$('watch').addEventListener('click', e => {                 // the solver's 37-move optimal line
+  e.target.blur(); clearInterval(replay); reset();
+  const line = 'DRULRDLLLURRUURDDLLDDLUUUURRRRDLDLDDL', dirs = {U:D.up,D:D.down,L:D.left,R:D.right};
+  let i = 0;
+  $('msg').textContent = 'Optimal line…';
+  replay = setInterval(() => {
+    if (i >= line.length){ clearInterval(replay); replay = null; $('msg').textContent = '21 of 25 in 37 ticks.'; return; }
+    input(dirs[line[i++]]);
+  }, 420);
+});
+new ResizeObserver(draw).observe(cv);
+reset();
+})();
+</script>
